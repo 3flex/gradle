@@ -56,8 +56,6 @@ import java.net.URI;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.LinkedHashSet;
-import java.util.concurrent.Callable;
 
 /**
  * <p>This interface is the main API you use to interact with Gradle from your build file. From a <code>Project</code>,
