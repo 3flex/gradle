@@ -16,21 +16,21 @@
 
 import gradlebuild.basics.BuildEnvironment
 import gradlebuild.classycle.tasks.Classycle
+import gradlebuild.cleanup.tasks.KillLeakingJavaProcesses
 import gradlebuild.docs.FindBrokenInternalLinks
 import gradlebuild.integrationtests.tasks.DistributionTest
 import gradlebuild.performance.tasks.PerformanceTest
 import gradlebuild.testcleanup.extension.TestFileCleanUpExtension
-import gradlebuild.cleanup.tasks.KillLeakingJavaProcesses
 import me.champeau.gradle.japicmp.JapicmpTask
 import org.gradle.api.internal.tasks.testing.junit.result.TestResultSerializer
-import java.io.File
-import java.io.FileFilter
 import java.io.FileOutputStream
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.LinkOption
+import java.util.stream.Stream
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
+import kotlin.streams.toList
 
 /**
  * When run from a Continuous Integration environment, we only want to archive a subset of reports, mostly for
@@ -50,7 +50,7 @@ if (BuildEnvironment.isCiServer && project.name != "gradle-kotlin-dsl-accessors"
         val failedTasks = failedTasks()
         val executedTasks = executedTasks()
         val tmpTestFiles = tmpTestFiles()
-        prepareReportsForCiPublishing(failedTasks, executedTasks, tmpTestFiles)
+        prepareReportsForCiPublishing(if (tmpTestFiles.isEmpty()) failedTasks else executedTasks, executedTasks, tmpTestFiles)
         cleanUp(tmpTestFiles)
         if (!isCleanupRunnerStep(gradle!!)) {
             verifyTestFilesCleanup(failedTasks, tmpTestFiles)
@@ -75,11 +75,6 @@ fun cleanUp(filesToCleanUp: List<File>) {
     }
 }
 
-fun File.nonEmptyDirectoryDebugMessage(): String {
-    val atMostTwoFiles = listFiles(FileFilter { isFile })?.toList()?.take(2) ?: emptyList()
-    return "$absolutePath: ${atMostTwoFiles.joinToString { it.absolutePath }}"
-}
-
 fun verifyTestFilesCleanup(failedTasks: List<Task>, tmpTestFiles: List<File>) {
     if (failedTasks.any { it is Test }) {
         println("Leftover files: $tmpTestFiles")
@@ -87,7 +82,7 @@ fun verifyTestFilesCleanup(failedTasks: List<Task>, tmpTestFiles: List<File>) {
     }
 
     if (tmpTestFiles.isNotEmpty()) {
-        val errorMessage = "Found non-empty test files dir:\n${tmpTestFiles.joinToString("\n") { it.nonEmptyDirectoryDebugMessage() }}"
+        val errorMessage = "Found non-empty test files dir:\n${tmpTestFiles.joinToString("\n") { it.toString() }}"
         if (testFilesCleanup.reportOnly.get()) {
             println(errorMessage)
         } else {
@@ -96,13 +91,13 @@ fun verifyTestFilesCleanup(failedTasks: List<Task>, tmpTestFiles: List<File>) {
     }
 }
 
-fun prepareReportsForCiPublishing(failedTasks: List<Task>, executedTasks: List<Task>, tmpTestFiles: List<File>) {
-    val failedTaskCustomReports = failedTasks.flatMap { it.failedTaskGenericHtmlReports() }
+fun prepareReportsForCiPublishing(testTasksToCollectReports: List<Task>, executedTasks: List<Task>, tmpTestFiles: List<File>) {
+    val collectedTaskCustomReports = testTasksToCollectReports.flatMap { it.failedTaskGenericHtmlReports() }
     val attachedReports = executedTasks.flatMap { it.attachedReportLocations() }
-    val executedTaskCustomReports = failedTasks.flatMap { it.failedTaskCustomReports() }
+    val executedTaskCustomReports = testTasksToCollectReports.flatMap { it.failedTaskCustomReports() }
     val testDistributionTraceJsons = executedTasks.filterIsInstance<Test>().flatMap { it.findTraceJson() }
 
-    val allReports = failedTaskCustomReports + attachedReports + executedTaskCustomReports + tmpTestFiles + testDistributionTraceJsons
+    val allReports = collectedTaskCustomReports + attachedReports + executedTaskCustomReports + tmpTestFiles + testDistributionTraceJsons
     allReports.forEach { report ->
         prepareReportForCiPublishing(report)
     }
@@ -118,10 +113,26 @@ fun Task.findTraceJson(): List<File> {
     }
 }
 
-fun tmpTestFiles() =
-    layout.buildDirectory.dir("tmp/test files").get().asFile.listFiles()?.filter { dir ->
-        Files.walk(dir.toPath()).use { paths -> !paths.allMatch { it.toFile().isDirectory } }
-    } ?: emptyList()
+fun tmpTestFiles(): List<File> {
+    val testFilesDir = layout.buildDirectory.dir("tmp/test files").get().asFile.toPath()
+    return Files.walk(testFilesDir).flatMap {
+        val relativePath = testFilesDir.relativize(it)
+        // +- test files
+        //    +- dir1
+        //       +- dir2
+        //    +- dir3
+        //       +- file4
+        //    +- dir4
+        //
+        // will be: [dir1, dir1/dir2, dir3, dir3/file4, dir4]
+        // Any file or relative path longer than 1 are leftover files.
+        if (relativePath.nameCount > 1 || it.toFile().isFile) {
+            Stream.of(it.toFile())
+        } else {
+            Stream.empty()
+        }
+    }.toList()
+}
 
 fun executedTasks() = gradle.taskGraph.allTasks.filter { it.project == project && it.state.executed }
 
