@@ -24,24 +24,85 @@ import org.gradle.api.tasks.SourceSet;
 import org.gradle.testing.base.TestSuite;
 
 /**
- * A group of related tests which both distinguish tests used for different purposes and which
- * can be configured to run against repeatedly against multiple {@link JvmTestSuiteTarget}s.
- *
+ * A test suite is a collection of JVM-based tests.
+ * <p>
+ * Each test suite consists of
+ * <ul>
+ *     <li>A {@link SourceSet}</li>
+ *     <li>A set of {@link ComponentDependencies compile and runtime dependencies}</li>
+ *     <li>One or more {@link JvmTestSuiteTarget targets}</li>
+ *     <li>A testing framework</li>
+ * </ul>
+ * 
  * @since 7.3
  */
 @Incubating
 public interface JvmTestSuite extends TestSuite, Buildable {
+    /**
+     * Source set associated with this test suite. The name of this source set is the same as the test suite.
+     *
+     * @return source set for this test suite.
+     */
     SourceSet getSources();
+
+    /**
+     * Configure the sources for this test suite.
+     *
+     * @param configuration configuration applied against the SourceSet for this test suite
+     */
     void sources(Action<? super SourceSet> configuration);
 
+    /**
+     * Collection of test suite targets.
+     *
+     * Each test suite target executes the tests in this test suite with a particular context and task.
+     *
+     * @return collection of test suite targets.
+     */
     ExtensiblePolymorphicDomainObjectContainer<? extends JvmTestSuiteTarget> getTargets();
 
+    /**
+     * Use the <a href="https://junit.org/junit5/docs/current/user-guide/">JUnit Jupiter</a> testing framework.
+     *
+     * <p>
+     *     Gradle will provide the version of JUnit Jupiter to use.
+     * </p>
+     */
     void useJUnitJupiter();
+
+    /**
+     * Use the <a href="https://junit.org/junit5/docs/current/user-guide/">JUnit Jupiter</a> testing framework with a specific version.
+     *
+     * @param version version of JUnit Jupiter to use
+     */
     void useJUnitJupiter(String version);
+
+    /**
+     * Use the <a href="https://junit.org/junit4/">JUnit4</a> testing framework.
+     * <p>
+     *     Gradle will provide the version of JUnit4 to use.
+     * </p>
+     */
     void useJUnit();
+
+    /**
+     * Use the <a href="https://junit.org/junit4/">JUnit4</a> testing framework with a specific version.
+     *
+     * @param version version of JUnit4 to use
+     */
     void useJUnit(String version);
+
     // TODO: Spock, TestNG?
 
+    /**
+     * Dependency handler for this component.
+     *
+     * @return dependency handler
+     */
     ComponentDependencies getDependencies();
+
+    /**
+     * Configure dependencies for this component.
+     */
     void dependencies(Action<? super ComponentDependencies> dependencies);
 }
